@@ -1,4 +1,4 @@
-/* $Id: string.h,v 1.13 2000/02/19 14:12:14 harald Exp $
+/* $Id: //WIFI_SOC/MP/SDK_4_3_0_0/Uboot/include/asm-mips/string.h#1 $
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive

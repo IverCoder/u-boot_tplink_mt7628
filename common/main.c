@@ -51,10 +51,17 @@ static int abortboot(int);
 
 #undef DEBUG_PARSER
 
-char        console_buffer[CFG_CBSIZE];		/* console I/O buffer	*/
+extern char console_buffer[CFG_CBSIZE];		/* console I/O buffer	*/
 
-static char erase_seq[] = "\b \b";		/* erase sequence	*/
-static char   tab_seq[] = "        ";		/* used to expand TABs	*/
+#define CONFIG_CMD_HISTORY
+#ifdef CONFIG_CMD_HISTORY
+#define     HISTORY_SIZE	10
+char 		console_history[HISTORY_SIZE][CFG_CBSIZE];
+static  int	history_cur_idx = -1;
+static  int	history_last_idx = -1;
+static  int history_counter = 0;
+static  int history_enable = 0;
+#endif
 
 #ifdef CONFIG_BOOT_RETRY_TIME
 static uint64_t endtime = 0;  /* must be set, default is instant timeout */
@@ -298,6 +305,7 @@ static __inline__ int abortboot(int bootdelay)
 
 /****************************************************************************/
 
+
 void main_loop (void)
 {
 #ifndef CFG_HUSH_PARSER
@@ -320,7 +328,6 @@ void main_loop (void)
 	char *bcs;
 	char bcs_set[16];
 #endif /* CONFIG_BOOTCOUNT_LIMIT */
-
 #if defined(CONFIG_VFD) && defined(VFD_TEST_LOGO)
 	ulong bmp = 0;		/* default bitmap */
 	extern int trab_vfd (ulong bitmap);
@@ -378,6 +385,7 @@ void main_loop (void)
 # ifndef CFG_HUSH_PARSER
 		run_command (p, 0);
 # else
+        printf("\n parse_string_outer \n");
 		parse_string_outer(p, FLAG_PARSE_SEMICOLON |
 				    FLAG_EXIT_FROM_LOOP);
 # endif
@@ -387,12 +395,11 @@ void main_loop (void)
 # endif
 	}
 #endif /* CONFIG_PREBOOT */
-
 #if defined(CONFIG_BOOTDELAY) && (CONFIG_BOOTDELAY >= 0)
 	s = getenv ("bootdelay");
 	bootdelay = s ? (int)simple_strtol(s, NULL, 10) : CONFIG_BOOTDELAY;
 
-	debug ("### main_loop entered: bootdelay=%d\n\n", bootdelay);
+	//debug ("### main_loop entered: bootdelay=%d\n", bootdelay);
 
 # ifdef CONFIG_BOOT_RETRY_TIME
 	init_cmd_timeout ();
@@ -408,8 +415,8 @@ void main_loop (void)
 #endif /* CONFIG_BOOTCOUNT_LIMIT */
 		s = getenv ("bootcmd");
 
-	debug ("### main_loop: bootcmd=\"%s\"\n", s ? s : "<UNDEFINED>");
-
+	//debug ("### main_loop: bootcmd=\"%s\"\n", s ? s : "<UNDEFINED>");
+	bootdelay = -1;
 	if (bootdelay >= 0 && s && !abortboot (bootdelay)) {
 # ifdef CONFIG_AUTOBOOT_KEYED
 		int prev = disable_ctrlc(1);	/* disable Control C checking */
@@ -449,6 +456,13 @@ void main_loop (void)
 	}
 #endif
 
+#if defined(DUAL_UBOOT_SUPPORT) && defined(FACTORY_UBOOT)
+	s = getenv("miniweb");
+	if (s)
+	{
+		run_command ("httpd", 0);
+	}
+#endif
 	/*
 	 * Main Loop for Monitor Command Processing
 	 */
@@ -466,7 +480,7 @@ void main_loop (void)
 			reset_cmd_timeout();
 		}
 #endif
-		len = readline (CFG_PROMPT);
+		len = readline (CFG_PROMPT, 0);
 
 		flag = 0;	/* assume no special flags for now */
 		if (len > 0)
@@ -486,7 +500,6 @@ void main_loop (void)
 # endif
 		}
 #endif
-
 		if (len == -1)
 			puts ("<INTERRUPT>\n");
 		else
@@ -525,147 +538,6 @@ void reset_cmd_timeout(void)
 	endtime = endtick(retry_time);
 }
 #endif
-
-/****************************************************************************/
-
-/*
- * Prompt for input and read a line.
- * If  CONFIG_BOOT_RETRY_TIME is defined and retry_time >= 0,
- * time out when time goes past endtime (timebase time in ticks).
- * Return:	number of read characters
- *		-1 if break
- *		-2 if timed out
- */
-int readline (const char *const prompt)
-{
-	char   *p = console_buffer;
-	int	n = 0;				/* buffer index		*/
-	int	plen = 0;			/* prompt length	*/
-	int	col;				/* output column cnt	*/
-	char	c;
-
-	/* print prompt */
-	if (prompt) {
-		plen = strlen (prompt);
-		puts (prompt);
-	}
-	col = plen;
-
-	for (;;) {
-#ifdef CONFIG_BOOT_RETRY_TIME
-		while (!tstc()) {	/* while no incoming data */
-			if (retry_time >= 0 && get_ticks() > endtime)
-				return (-2);	/* timed out */
-		}
-#endif
-		WATCHDOG_RESET();		/* Trigger watchdog, if needed */
-
-#ifdef CONFIG_SHOW_ACTIVITY
-		while (!tstc()) {
-			extern void show_activity(int arg);
-			show_activity(0);
-		}
-#endif
-		c = getc();
-
-		/*
-		 * Special character handling
-		 */
-		switch (c) {
-		case '\r':				/* Enter		*/
-		case '\n':
-			*p = '\0';
-			puts ("\r\n");
-			return (p - console_buffer);
-
-		case '\0':				/* nul			*/
-			continue;
-
-		case 0x03:				/* ^C - break		*/
-			console_buffer[0] = '\0';	/* discard input */
-			return (-1);
-
-		case 0x15:				/* ^U - erase line	*/
-			while (col > plen) {
-				puts (erase_seq);
-				--col;
-			}
-			p = console_buffer;
-			n = 0;
-			continue;
-
-		case 0x17:				/* ^W - erase word 	*/
-			p=delete_char(console_buffer, p, &col, &n, plen);
-			while ((n > 0) && (*p != ' ')) {
-				p=delete_char(console_buffer, p, &col, &n, plen);
-			}
-			continue;
-
-		case 0x08:				/* ^H  - backspace	*/
-		case 0x7F:				/* DEL - backspace	*/
-			p=delete_char(console_buffer, p, &col, &n, plen);
-			continue;
-
-		default:
-			/*
-			 * Must be a normal character then
-			 */
-			if (n < CFG_CBSIZE-2) {
-				if (c == '\t') {	/* expand TABs		*/
-#ifdef CONFIG_AUTO_COMPLETE
-					/* if auto completion triggered just continue */
-					*p = '\0';
-					if (cmd_auto_complete(prompt, console_buffer, &n, &col)) {
-						p = console_buffer + n;	/* reset */
-						continue;
-					}
-#endif
-					puts (tab_seq+(col&07));
-					col += 8 - (col&07);
-				} else {
-					++col;		/* echo input		*/
-					putc (c);
-				}
-				*p++ = c;
-				++n;
-			} else {			/* Buffer full		*/
-				putc ('\a');
-			}
-		}
-	}
-}
-
-/****************************************************************************/
-
-static char * delete_char (char *buffer, char *p, int *colp, int *np, int plen)
-{
-	char *s;
-
-	if (*np == 0) {
-		return (p);
-	}
-
-	if (*(--p) == '\t') {			/* will retype the whole line	*/
-		while (*colp > plen) {
-			puts (erase_seq);
-			(*colp)--;
-		}
-		for (s=buffer; s<p; ++s) {
-			if (*s == '\t') {
-				puts (tab_seq+((*colp) & 07));
-				*colp += 8 - ((*colp) & 07);
-			} else {
-				++(*colp);
-				putc (*s);
-			}
-		}
-	} else {
-		puts (erase_seq);
-		(*colp)--;
-	}
-	(*np)--;
-	return (p);
-}
 
 /****************************************************************************/
 
@@ -825,6 +697,23 @@ static void process_macros (const char *input, char *output)
 #endif
 }
 
+
+/****************************************************************************
+ * returns:
+ *	1  - command executed, repeatable
+ *	0  - command executed but not repeatable, interrupted commands are
+ *	     always considered not repeatable
+ *	-1 - not executed (unrecognized, bootd recursion or too many args)
+ *           (If cmd is NULL or "" or longer than CFG_CBSIZE-1 it is
+ *           considered unrecognized)
+ *
+ * WARNING:
+ *
+ * We must create a temporary copy of the command since the command we get
+ * may be the result from getenv(), which returns a pointer directly to
+ * the environment data, which may change magicly when the command we run
+ * creates or modifies environment variables (like "bootp" does).
+ */
 /****************************************************************************
  * returns:
  *	1  - command executed, repeatable

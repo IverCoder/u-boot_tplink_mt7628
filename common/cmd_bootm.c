@@ -29,10 +29,26 @@
 #include <command.h>
 #include <image.h>
 #include <malloc.h>
-#include <zlib.h>
-#include <bzlib.h>
+#include <rt_mmap.h>
+
 #include <environment.h>
 #include <asm/byteorder.h>
+
+#ifdef CONFIG_GZIP
+#include <zlib.h>
+#endif /* CONFIG_GZIP */
+
+#ifdef CONFIG_BZIP2
+#include <bzlib.h>
+#endif
+
+#ifdef CONFIG_LZMA
+#include <LzmaDecode.h>
+#endif /* CONFIG_LZMA */
+
+#ifdef CONFIG_XZ
+#include <unxz.h>
+#endif /* CONFIG_XZ */
 
  /*cmd_boot.c*/
  extern int do_reset (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[]);
@@ -73,13 +89,11 @@
 # define CHUNKSZ (64 * 1024)
 #endif
 
-int  gunzip (void *, int, unsigned char *, unsigned long *);
-
-static void *zalloc(void *, unsigned, unsigned);
-static void zfree(void *, void *, unsigned);
 
 #if (CONFIG_COMMANDS & CFG_CMD_IMI)
+#ifdef RT2880_U_BOOT_CMD_OPEN
 static int image_info (unsigned long addr);
+#endif
 #endif
 
 #if (CONFIG_COMMANDS & CFG_CMD_IMLS)
@@ -93,6 +107,9 @@ static void print_type (image_header_t *hdr);
 #ifdef __I386__
 image_header_t *fake_header(image_header_t *hdr, void *ptr, int size);
 #endif
+
+#define IH_TYPE_STANDALONE_SUPPORT
+#define CONFIG_NONE
 
 /*
  *  Continue booting an OS image; caller already has:
@@ -120,8 +137,12 @@ extern boot_os_Fcn do_bootm_linux;
 #ifdef CONFIG_SILENT_CONSOLE
 static void fixup_silent_linux (void);
 #endif
+#ifdef CONFIG_NETBSD
 static boot_os_Fcn do_bootm_netbsd;
+#endif
+#ifdef CONFIG_RTEMS
 static boot_os_Fcn do_bootm_rtems;
+#endif
 #if (CONFIG_COMMANDS & CFG_CMD_ELF)
 static boot_os_Fcn do_bootm_vxworks;
 static boot_os_Fcn do_bootm_qnxelf;
@@ -137,148 +158,72 @@ extern void lynxkdi_boot( image_header_t * );
 #endif
 
 image_header_t header;
+ulong load_addr =  CFG_LOAD_ADDR;		/* Default Load Address */
 
-ulong load_addr = CFG_LOAD_ADDR;		/* Default Load Address */
+static inline void mips_cache_set(u32 v)
+{
+	asm volatile ("mtc0 %0, $16" : : "r" (v));
+}
 
+
+/* changed by lqm, 18Jan08 */
+#include "tpLinuxTag.h"		/* support TP-LINK Linux Tag */
+
+/* added by lqm, 18Jan08, copy from fake_zimage_header() */
+image_header_t *fake_image_header(image_header_t *hdr, ulong kernelTextAddr, ulong entryPoint, int size)
+{
+	ulong checksum = 0;
+	memset(hdr, 0, sizeof(image_header_t));	/* Build new header */
+	hdr->ih_magic = htonl(IH_MAGIC);
+	hdr->ih_time  = 0;
+	hdr->ih_size  = htonl(size);
+	hdr->ih_load  = htonl(kernelTextAddr);
+	hdr->ih_ep    = htonl(entryPoint);
+	hdr->ih_dcrc  = htonl(checksum);
+	hdr->ih_os    = IH_OS_LINUX;
+	hdr->ih_arch  = IH_CPU_MIPS;
+	hdr->ih_type  = IH_TYPE_KERNEL;
+	hdr->ih_comp  = IH_COMP_LZMA;
+	strncpy((char *)hdr->ih_name, "(none)", IH_NMLEN);
+	hdr->ih_hcrc = htonl(checksum);
+	return hdr;
+}
 int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
-	ulong	iflag;
 	ulong	addr;
-	ulong	data, len, checksum;
+	ulong	data, len;
 	ulong  *len_ptr;
-	uint	unc_len = 0x400000;
-	int	i, verify;
-	char	*name, *s;
-	int	(*appl)(int, char *[]);
+	int	i, verify = 0;
+	char	*name;
 	image_header_t *hdr = &header;
-
-	s = getenv ("verify");
-	verify = (s && (*s == 'n')) ? 0 : 1;
-
+	LINUX_FILE_TAG *fileTag; 		// by lqm, 17Sep07s
+    
 	if (argc < 2) {
 		addr = load_addr;
 	} else {
 		addr = simple_strtoul(argv[1], NULL, 16);
 	}
 
+	printf("do_bootm:argc=%d, addr=0x%x\n", argc, addr);
+
 	SHOW_BOOT_PROGRESS (1);
 	printf ("## Booting image at %08lx ...\n", addr);
 
-	/* Copy header so we can blank CRC field for re-calculation */
-#ifdef CONFIG_HAS_DATAFLASH
-	if (addr_dataflash(addr)){
-		read_dataflash(addr, sizeof(image_header_t), (char *)&header);
-	} else
-#endif
-	memmove (&header, (char *)addr, sizeof(image_header_t));
+	fileTag = (LINUX_FILE_TAG*) addr;
 
-	if (ntohl(hdr->ih_magic) != IH_MAGIC) {
-#ifdef __I386__	/* correct image format not implemented yet - fake it */
-		if (fake_header(hdr, (void*)addr, -1) != NULL) {
-			/* to compensate for the addition below */
-			addr -= sizeof(image_header_t);
-			/* turnof verify,
-			 * fake_header() does not fake the data crc
-			 */
-			verify = 0;
-		} else
-#endif	/* __I386__ */
-	    {
-		puts ("Bad Magic Number\n");
-		SHOW_BOOT_PROGRESS (-1);
-		return 1;
-	    }
-	}
+/*    printf("---- fileTag = %08x\n", fileTag);    
+	printf("\t text base = %08x\n", fileTag->kernelTextAddr);    
+	printf("\t entry point = %08x\n", fileTag->kernelEntryPoint);
+*/	
+
+	fake_image_header(hdr, fileTag->kernelTextAddr, fileTag->kernelEntryPoint, fileTag->kernelLen);
+
+	data = addr + TAG_LEN;
+	len = ntohl(hdr->ih_size);
+
 	SHOW_BOOT_PROGRESS (2);
 
-	data = (ulong)&header;
-	len  = sizeof(image_header_t);
-
-	checksum = ntohl(hdr->ih_hcrc);
-	hdr->ih_hcrc = 0;
-
-	if (crc32 (0, (char *)data, len) != checksum) {
-		puts ("Bad Header Checksum\n");
-		SHOW_BOOT_PROGRESS (-2);
-		return 1;
-	}
-	SHOW_BOOT_PROGRESS (3);
-
-	/* for multi-file images we need the data part, too */
-	print_image_hdr ((image_header_t *)addr);
-
-	data = addr + sizeof(image_header_t);
-	len  = ntohl(hdr->ih_size);
-
-#ifdef CONFIG_HAS_DATAFLASH
-	if (addr_dataflash(addr)){
-		read_dataflash(data, len, (char *)CFG_LOAD_ADDR);
-		data = CFG_LOAD_ADDR;
-	}
-#endif
-
-	if (verify) {
-		puts ("   Verifying Checksum ... ");
-		if (crc32 (0, (char *)data, len) != ntohl(hdr->ih_dcrc)) {
-			printf ("Bad Data CRC\n");
-			SHOW_BOOT_PROGRESS (-3);
-			return 1;
-		}
-		puts ("OK\n");
-	}
-	SHOW_BOOT_PROGRESS (4);
-
-	len_ptr = (ulong *)data;
-
-#if defined(__PPC__)
-	if (hdr->ih_arch != IH_CPU_PPC)
-#elif defined(__ARM__)
-	if (hdr->ih_arch != IH_CPU_ARM)
-#elif defined(__I386__)
-	if (hdr->ih_arch != IH_CPU_I386)
-#elif defined(__mips__)
-	if (hdr->ih_arch != IH_CPU_MIPS)
-#elif defined(__nios__)
-	if (hdr->ih_arch != IH_CPU_NIOS)
-#elif defined(__M68K__)
-	if (hdr->ih_arch != IH_CPU_M68K)
-#elif defined(__microblaze__)
-	if (hdr->ih_arch != IH_CPU_MICROBLAZE)
-#elif defined(__nios2__)
-	if (hdr->ih_arch != IH_CPU_NIOS2)
-#else
-# error Unknown CPU type
-#endif
-	{
-		printf ("Unsupported Architecture 0x%x\n", hdr->ih_arch);
-		SHOW_BOOT_PROGRESS (-4);
-		return 1;
-	}
-	SHOW_BOOT_PROGRESS (5);
-
-	switch (hdr->ih_type) {
-	case IH_TYPE_STANDALONE:
-		name = "Standalone Application";
-		/* A second argument overwrites the load address */
-		if (argc > 2) {
-			hdr->ih_load = simple_strtoul(argv[2], NULL, 16);
-		}
-		break;
-	case IH_TYPE_KERNEL:
-		name = "Kernel Image";
-		break;
-	case IH_TYPE_MULTI:
-		name = "Multi-File Image";
-		len  = ntohl(len_ptr[0]);
-		/* OS kernel is always the first image */
-		data += 8; /* kernel_len + terminator */
-		for (i=1; len_ptr[i]; ++i)
-			data += 4;
-		break;
-	default: printf ("Wrong Image Type for %s command\n", cmdtp->name);
-		SHOW_BOOT_PROGRESS (-5);
-		return 1;
-	}
+	name = "Kernel Image";	
 	SHOW_BOOT_PROGRESS (6);
 
 	/*
@@ -286,8 +231,6 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	 * overwrite all exception vector code, so we cannot easily
 	 * recover from any failures any more...
 	 */
-
-	iflag = disable_interrupts();
 
 #ifdef CONFIG_AMIGAONEG3SE
 	/*
@@ -300,142 +243,44 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	dcache_disable();
 #endif
 
-	switch (hdr->ih_comp) {
-	case IH_COMP_NONE:
-		if(ntohl(hdr->ih_load) == addr) {
-			printf ("   XIP %s ... ", name);
-		} else {
-#if defined(CONFIG_HW_WATCHDOG) || defined(CONFIG_WATCHDOG)
-			size_t l = len;
-			void *to = (void *)ntohl(hdr->ih_load);
-			void *from = (void *)data;
+/* case IH_COMP_LZMA */
+#ifdef CONFIG_LZMA
+                printf ("   Uncompressing %s ... ", name);
 
-			printf ("   Loading %s ... ", name);
+#ifdef CONFIG_UNCOMPRESS_TIME
+                tBUncompress = get_ticks();
+#endif
+		unsigned int destLen = 0;
+                i = lzmaBuffToBuffDecompress ((char*)ntohl(hdr->ih_load),
+                                &destLen, (char *)data, len);
+                if (i != LZMA_RESULT_OK) {
+                        printf ("LZMA ERROR %d - must RESET board to recover\n", i);
+                        SHOW_BOOT_PROGRESS (-6);
+                        udelay(100000);
+                        do_reset (cmdtp, flag, argc, argv);
+                }
+#ifdef CONFIG_UNCOMPRESS_TIME
+                tAUncompress = get_ticks();
+                tAUncompress = (tAUncompress - tBUncompress) >> 10;
+                printf("Uncompression time : %lu/%lu\n",tAUncompress,get_tbclk());
+                printf("Uncompression length is %d\n",destLen);
+#endif
+#endif /* CONFIG_LZMA */
 
-			while (l > 0) {
-				size_t tail = (l > CHUNKSZ) ? CHUNKSZ : l;
-				WATCHDOG_RESET();
-				memmove (to, from, tail);
-				to += tail;
-				from += tail;
-				l -= tail;
-			}
-#else	/* !(CONFIG_HW_WATCHDOG || CONFIG_WATCHDOG) */
-			memmove ((void *) ntohl(hdr->ih_load), (uchar *)data, len);
-#endif	/* CONFIG_HW_WATCHDOG || CONFIG_WATCHDOG */
-		}
-		break;
-	case IH_COMP_GZIP:
-		printf ("   Uncompressing %s ... ", name);
-		if (gunzip ((void *)ntohl(hdr->ih_load), unc_len,
-			    (uchar *)data, &len) != 0) {
-			puts ("GUNZIP ERROR - must RESET board to recover\n");
-			SHOW_BOOT_PROGRESS (-6);
-			do_reset (cmdtp, flag, argc, argv);
-		}
-		break;
-#ifdef CONFIG_BZIP2
-	case IH_COMP_BZIP2:
-		printf ("   Uncompressing %s ... ", name);
-		/*
-		 * If we've got less than 4 MB of malloc() space,
-		 * use slower decompression algorithm which requires
-		 * at most 2300 KB of memory.
-		 */
-		i = BZ2_bzBuffToBuffDecompress ((char*)ntohl(hdr->ih_load),
-						&unc_len, (char *)data, len,
-						CFG_MALLOC_LEN < (4096 * 1024), 0);
-		if (i != BZ_OK) {
-			printf ("BUNZIP2 ERROR %d - must RESET board to recover\n", i);
-			SHOW_BOOT_PROGRESS (-6);
-			udelay(100000);
-			do_reset (cmdtp, flag, argc, argv);
-		}
-		break;
-#endif /* CONFIG_BZIP2 */
-	default:
-		if (iflag)
-			enable_interrupts();
-		printf ("Unimplemented compression type %d\n", hdr->ih_comp);
-		SHOW_BOOT_PROGRESS (-7);
-		return 1;
-	}
 	puts ("OK\n");
 	SHOW_BOOT_PROGRESS (7);
 
-	switch (hdr->ih_type) {
-	case IH_TYPE_STANDALONE:
-		if (iflag)
-			enable_interrupts();
 
-		/* load (and uncompress), but don't start if "autostart"
-		 * is set to "no"
-		 */
-		if (((s = getenv("autostart")) != NULL) && (strcmp(s,"no") == 0)) {
-			char buf[32];
-			sprintf(buf, "%lX", len);
-			setenv("filesize", buf);
-			return 0;
-		}
-		appl = (int (*)(int, char *[]))ntohl(hdr->ih_ep);
-		(*appl)(argc-1, &argv[1]);
-		return 0;
-	case IH_TYPE_KERNEL:
-	case IH_TYPE_MULTI:
-		/* handled below */
-		break;
-	default:
-		if (iflag)
-			enable_interrupts();
-		printf ("Can't boot image type %d\n", hdr->ih_type);
-		SHOW_BOOT_PROGRESS (-8);
-		return 1;
-	}
 	SHOW_BOOT_PROGRESS (8);
 
-	switch (hdr->ih_os) {
-	default:			/* handled by (original) Linux case */
-	case IH_OS_LINUX:
+/*	case IH_OS_LINUX: */
 #ifdef CONFIG_SILENT_CONSOLE
 	    fixup_silent_linux();
 #endif
-	    do_bootm_linux  (cmdtp, flag, argc, argv,
-			     addr, len_ptr, verify);
-	    break;
-	case IH_OS_NETBSD:
-	    do_bootm_netbsd (cmdtp, flag, argc, argv,
-			     addr, len_ptr, verify);
-	    break;
 
-#ifdef CONFIG_LYNXKDI
-	case IH_OS_LYNXOS:
-	    do_bootm_lynxkdi (cmdtp, flag, argc, argv,
-			     addr, len_ptr, verify);
-	    break;
-#endif
 
-	case IH_OS_RTEMS:
-	    do_bootm_rtems (cmdtp, flag, argc, argv,
+	do_bootm_linux  (cmdtp, flag, argc, argv,
 			     addr, len_ptr, verify);
-	    break;
-
-#if (CONFIG_COMMANDS & CFG_CMD_ELF)
-	case IH_OS_VXWORKS:
-	    do_bootm_vxworks (cmdtp, flag, argc, argv,
-			      addr, len_ptr, verify);
-	    break;
-	case IH_OS_QNX:
-	    do_bootm_qnxelf (cmdtp, flag, argc, argv,
-			      addr, len_ptr, verify);
-	    break;
-#endif /* CFG_CMD_ELF */
-#ifdef CONFIG_ARTOS
-	case IH_OS_ARTOS:
-	    do_bootm_artos  (cmdtp, flag, argc, argv,
-			     addr, len_ptr, verify);
-	    break;
-#endif
-	}
 
 	SHOW_BOOT_PROGRESS (-9);
 #ifdef DEBUG
@@ -445,6 +290,8 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	return 1;
 }
 
+//#ifdef RALINK_CMDLINE
+#if !defined (CONFIG_TINY_UBOOT)
 U_BOOT_CMD(
  	bootm,	CFG_MAXARGS,	1,	do_bootm,
  	"bootm   - boot application image from memory\n",
@@ -452,6 +299,25 @@ U_BOOT_CMD(
  	"\tpassing arguments 'arg ...'; when booting a Linux kernel,\n"
  	"\t'arg' can be the address of an initrd image\n"
 );
+#endif
+//#endif
+
+extern int do_reset (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[]);
+
+#if defined (CONFIG_TINY_UBOOT)
+U_BOOT_CMD(
+	reset, 1, 0,	do_reset,
+	"",
+	NULL
+);
+#else
+U_BOOT_CMD(
+	reset, 1, 0,	do_reset,
+	"reset   - Perform RESET of the CPU\n",
+	NULL
+);
+#endif
+
 
 #ifdef CONFIG_SILENT_CONSOLE
 static void
@@ -677,6 +543,7 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 		/*
 		 * Now check if we have a multifile image
 		 */
+#ifdef IH_TYPE_MULTI_SUPPORT
 	} else if ((hdr->ih_type==IH_TYPE_MULTI) && (len_ptr[1])) {
 		u_long tail    = ntohl(len_ptr[0]) % 4;
 		int i;
@@ -695,7 +562,7 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 		}
 
 		len   = ntohl(len_ptr[1]);
-
+#endif // IH_TYPE_MULTI_SUPPORT //
 	} else {
 		/*
 		 * no initrd image
@@ -795,6 +662,7 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 }
 #endif /* CONFIG_PPC */
 
+#ifdef CONFIG_NETBSD
 static void
 do_bootm_netbsd (cmd_tbl_t *cmdtp, int flag,
 		int	argc, char *argv[],
@@ -825,9 +693,10 @@ do_bootm_netbsd (cmd_tbl_t *cmdtp, int flag,
 	 */
 
 	img_addr = 0;
+#ifdef IH_TYPE_MULTI_SUPPORT
 	if ((hdr->ih_type==IH_TYPE_MULTI) && (len_ptr[1]))
 		img_addr = (image_header_t *) addr;
-
+#endif // IH_TYPE_MULTI_SUPPORT //
 
 	consdev = "";
 #if   defined (CONFIG_8xx_CONS_SMC1)
@@ -851,7 +720,7 @@ do_bootm_netbsd (cmd_tbl_t *cmdtp, int flag,
 		for (i=2, len=0 ; i<argc ; i+=1) {
 			if (i > 2)
 				cmdline[len++] = ' ';
-			strcpy (&cmdline[len], argv[i]);
+			sprintf(&cmdline[len], argv[i]);
 			len += strlen (argv[i]);
 		}
 	} else if ((cmdline = getenv("bootargs")) == NULL) {
@@ -874,6 +743,7 @@ do_bootm_netbsd (cmd_tbl_t *cmdtp, int flag,
 	 */
 	(*loader) (gd->bd, img_addr, consdev, cmdline);
 }
+#endif
 
 #if defined(CONFIG_ARTOS) && defined(CONFIG_PPC)
 
@@ -997,6 +867,7 @@ U_BOOT_CMD(
 #endif
 
 #if (CONFIG_COMMANDS & CFG_CMD_IMI)
+#ifdef RT2880_U_BOOT_CMD_OPEN
 int do_iminfo ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
 	int	arg;
@@ -1011,11 +882,13 @@ int do_iminfo ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		addr = simple_strtoul(argv[arg], NULL, 16);
 		if (image_info (addr) != 0) rcode = 1;
 	}
+
 	return rcode;
 }
 
 static int image_info (ulong addr)
 {
+
 	ulong	data, len, checksum;
 	image_header_t *hdr = &header;
 
@@ -1052,9 +925,12 @@ static int image_info (ulong addr)
 		return 1;
 	}
 	puts ("OK\n");
+	
 	return 0;
 }
+#endif
 
+#ifdef RT2880_U_BOOT_CMD_OPEN
 U_BOOT_CMD(
 	iminfo,	CFG_MAXARGS,	1,	do_iminfo,
 	"iminfo  - print header information for application image\n",
@@ -1063,15 +939,19 @@ U_BOOT_CMD(
 	"      address 'addr' in memory; this includes verification of the\n"
 	"      image contents (magic number, header and payload checksums)\n"
 );
-
+#endif
 #endif	/* CFG_CMD_IMI */
 
 #if (CONFIG_COMMANDS & CFG_CMD_IMLS)
 /*-----------------------------------------------------------------------
  * List all images found in flash.
  */
+#ifdef RT2880_U_BOOT_CMD_OPEN
+ 
 int do_imls (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
+
+
 	flash_info_t *info;
 	int i, j;
 	image_header_t *hdr;
@@ -1122,6 +1002,8 @@ U_BOOT_CMD(
 	"    - Prints information about all images found at sector\n"
 	"      boundaries in flash.\n"
 );
+#endif
+
 #endif	/* CFG_CMD_IMLS */
 
 void
@@ -1139,6 +1021,7 @@ print_image_hdr (image_header_t *hdr)
 		tm.tm_year, tm.tm_mon, tm.tm_mday,
 		tm.tm_hour, tm.tm_min, tm.tm_sec);
 #endif	/* CFG_CMD_DATE, CONFIG_TIMESTAMP */
+
 	puts ("   Image Type:   "); print_type(hdr);
 	printf ("\n   Data Size:    %d Bytes = ", ntohl(hdr->ih_size));
 	print_size (ntohl(hdr->ih_size), "\n");
@@ -1146,6 +1029,7 @@ print_image_hdr (image_header_t *hdr)
 		"   Entry Point:  %08x\n",
 		 ntohl(hdr->ih_load), ntohl(hdr->ih_ep));
 
+#ifdef IH_TYPE_MULTI_SUPPORT
 	if (hdr->ih_type == IH_TYPE_MULTI) {
 		int i;
 		ulong len;
@@ -1157,6 +1041,7 @@ print_image_hdr (image_header_t *hdr)
 			print_size (len, "\n");
 		}
 	}
+#endif // IH_TYPE_MULTI_SUPPORT //
 }
 
 
@@ -1202,10 +1087,14 @@ print_type (image_header_t *hdr)
 
 	switch (hdr->ih_type) {
 	case IH_TYPE_INVALID:	type = "Invalid Image";		break;
+#ifdef IH_TYPE_STANDALONE_SUPPORT
 	case IH_TYPE_STANDALONE:type = "Standalone Program";	break;
+#endif // IH_TYPE_STANDALONE_SUPPORT //
 	case IH_TYPE_KERNEL:	type = "Kernel Image";		break;
 	case IH_TYPE_RAMDISK:	type = "RAMDisk Image";		break;
+#ifdef IH_TYPE_MULTI_SUPPORT
 	case IH_TYPE_MULTI:	type = "Multi-File Image";	break;
+#endif // IH_TYPE_MULTI_SUPPORT //
 	case IH_TYPE_FIRMWARE:	type = "Firmware";		break;
 	case IH_TYPE_SCRIPT:	type = "Script";		break;
 	default:		type = "Unknown Image";		break;
@@ -1215,12 +1104,15 @@ print_type (image_header_t *hdr)
 	case IH_COMP_NONE:	comp = "uncompressed";		break;
 	case IH_COMP_GZIP:	comp = "gzip compressed";	break;
 	case IH_COMP_BZIP2:	comp = "bzip2 compressed";	break;
+	case IH_COMP_LZMA:      comp = "lzma compressed";       break;
+	case IH_COMP_XZ:        comp = "xz compressed";         break;
 	default:		comp = "unknown compression";	break;
 	}
 
 	printf ("%s %s %s (%s)", arch, os, type, comp);
 }
 
+#ifdef CONFIG_GZIP
 #define	ZALLOC_ALIGNMENT	16
 
 static void *zalloc(void *x, unsigned items, unsigned size)
@@ -1239,6 +1131,7 @@ static void zfree(void *x, void *addr, unsigned nb)
 {
 	free (addr);
 }
+
 
 #define HEAD_CRC	2
 #define EXTRA_FIELD	4
@@ -1302,7 +1195,7 @@ int gunzip(void *dst, int dstlen, unsigned char *src, unsigned long *lenp)
 
 	return (0);
 }
-
+#endif // CONFIG_GZIP //
 #ifdef CONFIG_BZIP2
 void bz_internal_error(int errcode)
 {
@@ -1310,6 +1203,7 @@ void bz_internal_error(int errcode)
 }
 #endif /* CONFIG_BZIP2 */
 
+#ifdef CONFIG_RTEMS
 static void
 do_bootm_rtems (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[],
 		ulong addr, ulong *len_ptr, int verify)
@@ -1332,6 +1226,7 @@ do_bootm_rtems (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[],
 
 	(*entry_point ) ( gd->bd );
 }
+#endif
 
 #if (CONFIG_COMMANDS & CFG_CMD_ELF)
 static void

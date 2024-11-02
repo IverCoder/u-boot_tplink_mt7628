@@ -1,4 +1,4 @@
-/* $Id$ */
+/* $Id: //WIFI_SOC/MP/SDK_4_3_0_0/Uboot/include/bedbug/regs.h#1 $ */
 
 #ifndef _REGS_H
 #define _REGS_H

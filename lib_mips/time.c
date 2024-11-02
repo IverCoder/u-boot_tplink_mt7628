@@ -23,19 +23,19 @@
 
 #include <common.h>
 
+extern unsigned long mips_cpu_feq;
 
-static inline void mips_compare_set(u32 v)
+__attribute__((nomips16)) static void mips_compare_set(u32 v)
 {
 	asm volatile ("mtc0 %0, $11" : : "r" (v));
 }
 
-static inline void mips_count_set(u32 v)
+__attribute__((nomips16)) static void  mips_count_set(u32 v)
 {
 	asm volatile ("mtc0 %0, $9" : : "r" (v));
 }
 
-
-static inline u32 mips_count_get(void)
+__attribute__((nomips16)) static u32 mips_count_get(void)
 {
 	u32 count;
 
@@ -46,40 +46,40 @@ static inline u32 mips_count_get(void)
 /*
  * timer without interrupts
  */
-
-int timer_init(void)
+__attribute__((nomips16)) int timer_init(void)
 {
+	
 	mips_compare_set(0);
 	mips_count_set(0);
-
+	
 	return 0;
 }
 
-void reset_timer(void)
-{
-	mips_count_set(0);
-}
 
-ulong get_timer(ulong base)
+__attribute__((nomips16)) ulong get_timer(ulong base)
 {
+	//printf("%s = %x\n", __FUNCTION__, mips_count_get() );
 	return mips_count_get() - base;
 }
 
-void set_timer(ulong t)
-{
-	mips_count_set(t);
-}
 
-void udelay (unsigned long usec)
+__attribute__((nomips16)) void udelay (unsigned long usec)
 {
 	ulong tmo;
 	ulong start = get_timer(0);
 
-	tmo = usec * (CFG_HZ / 1000000);
+	tmo = usec * ((mips_cpu_feq/2) / 1000000);
 	while ((ulong)((mips_count_get() - start)) < tmo)
 		/*NOP*/;
 }
 
+__attribute__((nomips16)) void mdelay(unsigned long msec)
+{
+	while (msec--)
+		udelay(1000);
+}
+
+#if 0
 /*
  * This function is derived from PowerPC code (read timebase as long long).
  * On MIPS it just returns the timer value.
@@ -97,3 +97,14 @@ ulong get_tbclk(void)
 {
 	return CFG_HZ;
 }
+
+void reset_timer(void)
+{
+	mips_count_set(0);
+}
+
+void set_timer(ulong t)
+{
+	mips_count_set(t);
+}
+#endif

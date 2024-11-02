@@ -69,6 +69,16 @@
 # endif
 #endif	/* CFG_ENV_IS_IN_FLASH */
 
+/* Port from soho, yuanshang, 2013-09-16 */
+/*
+**	Define Macro "ENV_IS_EMBEDDED" under condition "CFG_ENV_IS_IN_SPI" to unuse Uboot parameter.
+@@	By TengFei, 13/01/25
+*/
+#if defined(CFG_ENV_IS_IN_SPI)
+
+#define ENV_IS_EMBEDDED	1
+
+#endif /* CFG_ENV_IS_IN_FLASH */
 
 #ifdef CFG_REDUNDAND_ENVIRONMENT
 # define ENV_HEADER_SIZE	(sizeof(unsigned long) + 1)

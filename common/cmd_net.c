@@ -27,14 +27,27 @@
 #include <common.h>
 #include <command.h>
 #include <net.h>
-
+#undef DEBUG
 #if (CONFIG_COMMANDS & CFG_CMD_NET)
 
 
 extern int do_bootm (cmd_tbl_t *, int, int, char *[]);
-
+extern int modifies;
 static int netboot_common (int, cmd_tbl_t *, int , char *[]);
 
+#if defined(MINI_WEB_SERVER_SUPPORT)
+int do_httpd(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[]){
+	return NetLoopHttpd();
+}
+U_BOOT_CMD(
+	httpd, 1, 1, do_httpd, 
+	"start www server for firmware recovery\n", 
+	NULL);
+#endif
+
+
+#ifdef RALINK_CMDLINE
+#ifdef RT2880_U_BOOT_CMD_OPEN
 int do_bootp (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
 	return netboot_common (BOOTP, cmdtp, argc, argv);
@@ -45,18 +58,35 @@ U_BOOT_CMD(
 	"bootp\t- boot image via network using BootP/TFTP protocol\n",
 	"[loadAddress] [bootfilename]\n"
 );
+#endif
+#endif
 
 int do_tftpb (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
+#ifdef DEBUG
+   printf("File: %s, Func: %s, Line: %d\n", __FILE__,__FUNCTION__ , __LINE__);
+#endif   
 	return netboot_common (TFTP, cmdtp, argc, argv);
 }
 
+//#ifdef RALINK_CMDLINE
+#if defined (CONFIG_TINY_UBOOT)
+U_BOOT_CMD(
+	tftpboot,	3,	1,	do_tftpb,
+	"",
+	""
+);
+#else
 U_BOOT_CMD(
 	tftpboot,	3,	1,	do_tftpb,
 	"tftpboot- boot image via network using TFTP protocol\n",
 	"[loadAddress] [bootfilename]\n"
 );
+#endif
+//#endif
 
+#ifdef RT2880_U_BOOT_CMD_OPEN
+#ifdef RALINK_CMDLINE
 int do_rarpb (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
 	return netboot_common (RARP, cmdtp, argc, argv);
@@ -67,7 +97,8 @@ U_BOOT_CMD(
 	"rarpboot- boot image via network using RARP/TFTP protocol\n",
 	"[loadAddress] [bootfilename]\n"
 );
-
+#endif
+#endif
 #if (CONFIG_COMMANDS & CFG_CMD_DHCP)
 int do_dhcp (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
@@ -94,6 +125,7 @@ U_BOOT_CMD(
 );
 #endif	/* CFG_CMD_NFS */
 
+#if (CONFIG_COMMANDS & CFG_CMD_ENV)
 static void netboot_update_env (void)
 {
 	char tmp[22];
@@ -136,7 +168,9 @@ static void netboot_update_env (void)
 #endif
 	if (NetOurNISDomain[0])
 		setenv ("domain", NetOurNISDomain);
+
 }
+#endif
 
 static int
 netboot_common (int proto, cmd_tbl_t *cmdtp, int argc, char *argv[])
@@ -145,6 +179,8 @@ netboot_common (int proto, cmd_tbl_t *cmdtp, int argc, char *argv[])
 	int   rcode = 0;
 	int   size;
 
+
+		printf("\n netboot_common, argc= %d \n", argc);
 	/* pre-set load_addr */
 	if ((s = getenv("loadaddr")) != NULL) {
 		load_addr = simple_strtoul(s, NULL, 16);
@@ -155,9 +191,9 @@ netboot_common (int proto, cmd_tbl_t *cmdtp, int argc, char *argv[])
 		break;
 
 	case 2:	/* only one arg - accept two forms:
-		 * just load address, or just boot file name.
-		 * The latter form must be written "filename" here.
-		 */
+		       * just load address, or just boot file name.
+		       * The latter form must be written "filename" here.
+		       */
 		if (argv[1][0] == '"') {	/* just boot filename */
 			copy_filename (BootFile, argv[1], sizeof(BootFile));
 		} else {			/* load address	*/
@@ -167,7 +203,10 @@ netboot_common (int proto, cmd_tbl_t *cmdtp, int argc, char *argv[])
 
 	case 3:	load_addr = simple_strtoul(argv[1], NULL, 16);
 		copy_filename (BootFile, argv[2], sizeof(BootFile));
-
+   #ifdef DEBUG		
+      printf("load addr= 0x%08x\n", load_addr);
+      printf("boot file= %s\n", BootFile);
+   #endif      
 		break;
 
 	default: printf ("Usage:\n%s\n", cmdtp->usage);
@@ -176,25 +215,39 @@ netboot_common (int proto, cmd_tbl_t *cmdtp, int argc, char *argv[])
 
 	if ((size = NetLoop(proto)) < 0)
 		return 1;
-
+   printf("NetBootFileXferSize= %08x\n", size);
+   
 	/* NetLoop ok, update environment */
+#if (CONFIG_COMMANDS & CFG_CMD_ENV)
 	netboot_update_env();
-
+#endif
+   
 	/* done if no file was loaded (no errors though) */
 	if (size == 0)
 		return 0;
 
 	/* flush cache */
 	flush_cache(load_addr, size);
-
+	
 	/* Loading ok, check if we should attempt an auto-start */
 	if (((s = getenv("autostart")) != NULL) && (strcmp(s,"yes") == 0)) {
 		char *local_args[2];
 		local_args[0] = argv[0];
 		local_args[1] = NULL;
 
-		printf ("Automatic boot of image at addr 0x%08lX ...\n",
-			load_addr);
+      if(modifies) {
+         setenv("autostart", "no");
+         setenv ("bootfile", BootFile);
+      #ifdef DEBUG         
+         s = getenv("bootfile");
+	      printf("save bootfile= %s\n", s);
+      #endif
+#if (CONFIG_COMMANDS & CFG_CMD_ENV)
+         saveenv();		
+#endif
+      }
+
+		printf ("Automatic boot of image at addr 0x%08lX ...\n",	load_addr);
 		rcode = do_bootm (cmdtp, 0, 1, local_args);
 	}
 
@@ -210,9 +263,11 @@ netboot_common (int proto, cmd_tbl_t *cmdtp, int argc, char *argv[])
 #if (CONFIG_COMMANDS & CFG_CMD_PING)
 int do_ping (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
+	
+
 	if (argc < 2)
 		return -1;
-
+    
 	NetPingIP = string_to_ip(argv[1]);
 	if (NetPingIP == 0) {
 		printf ("Usage:\n%s\n", cmdtp->usage);

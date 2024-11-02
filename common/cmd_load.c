@@ -30,7 +30,6 @@
 #include <net.h>
 #include <exports.h>
 
-
 #if (CONFIG_COMMANDS & CFG_CMD_LOADS)
 static ulong load_serial (ulong offset);
 static int read_record (char *buf, ulong len);
@@ -47,6 +46,7 @@ static int do_echo = 1;
 #if (CONFIG_COMMANDS & CFG_CMD_LOADS)
 int do_load_serial (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
+
 	ulong offset = 0;
 	ulong addr;
 	int i;
@@ -81,7 +81,12 @@ int do_load_serial (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 			load_baudrate);
 		udelay(50000);
 		gd->baudrate = load_baudrate;
+#if defined(RT6855A_ASIC_BOARD) || defined(RT6855A_FPGA_BOARD)
+		bbu_uart_init();
+#else
 		serial_setbrg ();
+#endif
+
 		udelay(50000);
 		for (;;) {
 			if (getc() == '\r')
@@ -124,7 +129,11 @@ int do_load_serial (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 			current_baudrate);
 		udelay (50000);
 		gd->baudrate = current_baudrate;
+#if defined(RT6855A_ASIC_BOARD) || defined(RT6855A_FPGA_BOARD)
+		bbu_uart_init();
+#else
 		serial_setbrg ();
+#endif
 		udelay (50000);
 		for (;;) {
 			if (getc() == 0x1B) /* ESC */
@@ -281,7 +290,12 @@ int do_save_serial (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 			save_baudrate);
 		udelay(50000);
 		gd->baudrate = save_baudrate;
+#if defined(RT6855A_ASIC_BOARD) || defined(RT6855A_FPGA_BOARD)
+		bbu_uart_init();
+#else
 		serial_setbrg ();
+#endif
+
 		udelay(50000);
 		for (;;) {
 			if (getc() == '\r')
@@ -310,7 +324,12 @@ int do_save_serial (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 			(int)current_baudrate);
 		udelay (50000);
 		gd->baudrate = current_baudrate;
+#if defined(RT6855A_ASIC_BOARD) || defined(RT6855A_FPGA_BOARD)
+		bbu_uart_init();
+#else
 		serial_setbrg ();
+#endif
+
 		udelay (50000);
 		for (;;) {
 			if (getc() == 0x1B) /* ESC */
@@ -433,8 +452,8 @@ char his_quote;      /* quote chars he'll use */
 
 int do_load_serial_bin (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
-	DECLARE_GLOBAL_DATA_PTR;
 
+	DECLARE_GLOBAL_DATA_PTR;
 	ulong offset = 0;
 	ulong addr;
 	int load_baudrate, current_baudrate;
@@ -467,7 +486,12 @@ int do_load_serial_bin (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 			load_baudrate);
 		udelay(50000);
 		gd->baudrate = load_baudrate;
+#if defined(RT6855A_ASIC_BOARD) || defined(RT6855A_FPGA_BOARD)
+		bbu_uart_init();
+#else
 		serial_setbrg ();
+#endif
+
 		udelay(50000);
 		for (;;) {
 			if (getc() == '\r')
@@ -495,7 +519,12 @@ int do_load_serial_bin (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 			current_baudrate);
 		udelay (50000);
 		gd->baudrate = current_baudrate;
+#if defined(RT6855A_ASIC_BOARD) || defined(RT6855A_FPGA_BOARD)
+		bbu_uart_init();
+#else
 		serial_setbrg ();
+#endif
+
 		udelay (50000);
 		for (;;) {
 			if (getc() == 0x1B) /* ESC */
@@ -513,6 +542,7 @@ int do_load_serial_bin (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		}
 	}
 #endif
+
 	return rcode;
 }
 
@@ -1052,4 +1082,5 @@ U_BOOT_CMD(
 	"[on|off]\n - change RTS/CTS hardware flow control over serial line\n"
 );
 
-#endif /* CFG_CMD_HWFLOW */
+#endif
+

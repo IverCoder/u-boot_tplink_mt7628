@@ -164,7 +164,6 @@ void fprintf (int file, const char *fmt, ...)
 int getc (void)
 {
 	DECLARE_GLOBAL_DATA_PTR;
-
 	if (gd->flags & GD_FLG_DEVINIT) {
 		/* Get from the standard input */
 		return fgetc (stdin);
@@ -177,7 +176,6 @@ int getc (void)
 int tstc (void)
 {
 	DECLARE_GLOBAL_DATA_PTR;
-
 	if (gd->flags & GD_FLG_DEVINIT) {
 		/* Test the standard input */
 		return ftstc (stdin);
@@ -276,6 +274,7 @@ int ctrlc (void)
 	return 0;
 }
 
+
 /* pass 1 to disable ctrlc() checking, 0 to enable.
  * returns previous state
  */
@@ -373,14 +372,11 @@ int console_assign (int file, char *devname)
 int console_init_f (void)
 {
 	DECLARE_GLOBAL_DATA_PTR;
-
 	gd->have_console = 1;
-
 #ifdef CONFIG_SILENT_CONSOLE
 	if (getenv("silent") != NULL)
 		gd->flags |= GD_FLG_SILENT;
 #endif
-
 	return (0);
 }
 

@@ -30,15 +30,15 @@
 
 
 /* -------------------------------------------------------------------- */
-
 int do_go (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
+
 #if defined(CONFIG_I386)
 	DECLARE_GLOBAL_DATA_PTR;
 #endif
 	ulong	addr, rc;
 	int     rcode = 0;
-
+#if  1
 	if (argc < 2) {
 		printf ("Usage:\n%s\n", cmdtp->usage);
 		return 1;
@@ -70,6 +70,7 @@ int do_go (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	if (rc != 0) rcode = 1;
 
 	printf ("## Application terminated, rc = 0x%lX\n", rc);
+#endif	
 	return rcode;
 }
 
@@ -82,10 +83,3 @@ U_BOOT_CMD(
 	"      passing 'arg' as arguments\n"
 );
 
-extern int do_reset (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[]);
-
-U_BOOT_CMD(
-	reset, 1, 0,	do_reset,
-	"reset   - Perform RESET of the CPU\n",
-	NULL
-);

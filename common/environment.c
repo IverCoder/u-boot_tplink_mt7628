@@ -90,8 +90,12 @@
  * Check to see if we are building with a
  * computed CRC.  Otherwise define it as ~0.
  */
+#if	0
 #if !defined(ENV_CRC)
 #  define ENV_CRC	~0
+#endif
+#else		/* rewrited by TengFei, 13/01/25 */
+	#define ENV_CRC	(~0)
 #endif
 
 env_t environment __PPCENV__ = {
@@ -137,10 +141,10 @@ env_t environment __PPCENV__ = {
 	"ethprime="	CONFIG_ETHPRIME			"\0"
 #endif
 #ifdef	CONFIG_IPADDR
-	"ipaddr="	MK_STR(CONFIG_IPADDR)		"\0"
+	"ipaddr=" MK_STR(CONFIG_IPADDR)		"\0"
 #endif
 #ifdef	CONFIG_SERVERIP
-	"serverip="	MK_STR(CONFIG_SERVERIP)		"\0"
+	"serverip=" MK_STR(CONFIG_SERVERIP)		"\0"
 #endif
 #ifdef	CFG_AUTOLOAD
 	"autoload="	CFG_AUTOLOAD			"\0"
@@ -171,9 +175,6 @@ env_t environment __PPCENV__ = {
 #endif
 #if defined(CONFIG_PCI_BOOTDELAY) && (CONFIG_PCI_BOOTDELAY > 0)
 	"pcidelay="	MK_STR(CONFIG_PCI_BOOTDELAY)	"\0"
-#endif
-#ifdef  CONFIG_EXTRA_ENV_SETTINGS
-	CONFIG_EXTRA_ENV_SETTINGS
 #endif
 	"\0"		/* Term. env_t.data with 2 NULs */
 	}

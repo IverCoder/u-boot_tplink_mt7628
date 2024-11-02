@@ -46,6 +46,8 @@
 #include <serial.h>
 #include <linux/stddef.h>
 #include <asm/byteorder.h>
+#include <rt_mmap.h>
+
 #if (CONFIG_COMMANDS & CFG_CMD_NET)
 #include <net.h>
 #endif
@@ -55,8 +57,9 @@
     !defined(CFG_ENV_IS_IN_FLASH)	&& \
     !defined(CFG_ENV_IS_IN_DATAFLASH)	&& \
     !defined(CFG_ENV_IS_IN_NAND)	&& \
+    !defined(CFG_ENV_IS_IN_SPI)	&& \
     !defined(CFG_ENV_IS_NOWHERE)
-# error Define one of CFG_ENV_IS_IN_{NVRAM|EEPROM|FLASH|DATAFLASH|NOWHERE}
+# error Define one of CFG_ENV_IS_IN_{NVRAM|EEPROM|FLASH|DATAFLASH|SPI|NOWHERE}
 #endif
 
 #define XMK_STR(x)	#x
@@ -90,7 +93,8 @@ static const unsigned long baudrate_table[] = CFG_BAUDRATE_TABLE;
 /************************************************************************
  * Command interface: print one or all environment variables
  */
-
+//#ifdef RALINK_CMDLINE
+#if !defined (CONFIG_TINY_UBOOT)
 int do_printenv (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
 	int i, j, k, nxt;
@@ -142,6 +146,8 @@ int do_printenv (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	}
 	return rcode;
 }
+#endif
+//#endif // RALINK_CMDLINE //
 
 /************************************************************************
  * Set a new environment variable,
@@ -247,7 +253,12 @@ int _do_setenv (int flag, int argc, char *argv[])
 			gd->bd->bi_baudrate = baudrate;
 #endif
 
+#if defined(RT6855A_ASIC_BOARD) || defined(RT6855A_FPGA_BOARD)
+			bbu_uart_init();
+#else
 			serial_setbrg ();
+#endif
+
 			udelay(50000);
 			for (;;) {
 				if (getc() == '\r')
@@ -380,6 +391,43 @@ int _do_setenv (int flag, int argc, char *argv[])
 	}
 #endif	/* CONFIG_AMIGAONEG3SE */
 
+#if 0
+	if (strcmp(argv[1],"twe0") == 0) {
+		printf("\n Reset  to Flash environment  \n");
+	{
+
+		unsigned int regvalue,kk0;
+
+
+		kk0 = simple_strtoul(argv[2], NULL, 16);
+		
+		regvalue = *(volatile u_long *)(RALINK_SYSCTL_BASE + 0x0308);
+
+	printf("\n Default FLASH_CS1_CFG = %08X \n",regvalue);
+
+    regvalue &= ~(0x3 << 26);
+	regvalue |= (0x1 << 26);
+
+	regvalue |= (0x1 << 24);
+
+	regvalue &= ~(0x3 << 20);
+	regvalue |= (0x1 << 20);
+
+	regvalue &= ~(0x3 << 16);
+	regvalue |= (0x1 << 16);
+
+	regvalue &= ~(0xF << 12);
+	regvalue |= (kk0 << 12);
+
+
+	*(volatile u_long *)(RALINK_SYSCTL_BASE + 0x0308) = regvalue;
+
+	regvalue = *(volatile u_long *)(RALINK_SYSCTL_BASE + 0x0308);
+
+		}
+	}
+#endif
+
 	return 0;
 }
 
@@ -461,7 +509,7 @@ int do_askenv ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		return 1;
 
 	/* prompt for input */
-	len = readline (message);
+	len = readline (message, 0);
 
 	if (size < len)
 		console_buffer[size] = '\0';
@@ -505,6 +553,7 @@ char *getenv (uchar *name)
 	return (NULL);
 }
 
+#if 0
 int getenv_r (uchar *name, uchar *buf, unsigned len)
 {
 	int i, nxt;
@@ -529,7 +578,9 @@ int getenv_r (uchar *name, uchar *buf, unsigned len)
 	}
 	return (-1);
 }
+#endif
 
+#ifdef RALINK_CMDLINE
 #if defined(CFG_ENV_IS_IN_NVRAM) || defined(CFG_ENV_IS_IN_EEPROM) || \
     ((CONFIG_COMMANDS & (CFG_CMD_ENV|CFG_CMD_FLASH)) == \
       (CFG_CMD_ENV|CFG_CMD_FLASH))
@@ -541,10 +592,8 @@ int do_saveenv (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 
 	return (saveenv() ? 1 : 0);
 }
-
-
 #endif
-
+#endif // RALINK_CMDLINE //
 
 /************************************************************************
  * Match a name / name=value pair
@@ -553,7 +602,6 @@ int do_saveenv (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
  * i2 is the environment index for a 'name2=value2' pair.
  * If the names match, return the index for the value2, else NULL.
  */
-
 static int
 envmatch (uchar *s1, int i2)
 {
@@ -567,8 +615,9 @@ envmatch (uchar *s1, int i2)
 }
 
 
-/**************************************************/
 
+/**************************************************/
+#if !defined (CONFIG_TINY_UBOOT)
 U_BOOT_CMD(
 	printenv, CFG_MAXARGS, 1,	do_printenv,
 	"printenv- print environment variables\n",
@@ -576,7 +625,15 @@ U_BOOT_CMD(
 	"printenv name ...\n"
 	"    - print value of environment variable 'name'\n"
 );
+#endif
 
+#if defined (CONFIG_TINY_UBOOT)
+U_BOOT_CMD(
+	setenv, CFG_MAXARGS, 0,	do_setenv,
+	"",
+	""
+);
+#else
 U_BOOT_CMD(
 	setenv, CFG_MAXARGS, 0,	do_setenv,
 	"setenv  - set environment variables\n",
@@ -585,6 +642,8 @@ U_BOOT_CMD(
 	"setenv name\n"
 	"    - delete environment variable 'name'\n"
 );
+#endif
+#ifdef RALINK_CMDLINE
 
 #if defined(CFG_ENV_IS_IN_NVRAM) || defined(CFG_ENV_IS_IN_EEPROM) || \
     ((CONFIG_COMMANDS & (CFG_CMD_ENV|CFG_CMD_FLASH)) == \
@@ -595,6 +654,7 @@ U_BOOT_CMD(
 	NULL
 );
 
+#endif
 #endif	/* CFG_CMD_ENV */
 
 #if (CONFIG_COMMANDS & CFG_CMD_ASKENV)

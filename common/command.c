@@ -28,6 +28,7 @@
 #include <common.h>
 #include <command.h>
 
+#if !defined (CONFIG_TINY_UBOOT)
 int
 do_version (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
@@ -41,7 +42,9 @@ U_BOOT_CMD(
  	"version - print monitor version\n",
 	NULL
 );
+#endif
 
+#if (CONFIG_COMMANDS & CFG_CMD_ECHO)
 int
 do_echo (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
@@ -73,6 +76,7 @@ U_BOOT_CMD(
  	"[args..]\n"
 	"    - echo args to console; \\c suppresses newline\n"
 );
+#endif
 
 #ifdef CFG_HUSH_PARSER
 
@@ -231,6 +235,7 @@ U_BOOT_CMD(
  * Use puts() instead of printf() to avoid printf buffer overflow
  * for long help messages
  */
+#if !defined (CONFIG_TINY_UBOOT)
 int do_help (cmd_tbl_t * cmdtp, int flag, int argc, char *argv[])
 {
 	int i;
@@ -335,7 +340,7 @@ cmd_tbl_t __u_boot_cmd_question_mark Struct_Section = {
  	"?       - alias for 'help'\n"
 };
 #endif /* CFG_LONGHELP */
-
+#endif
 /***************************************************************************
  * find command table entry for a command
  */

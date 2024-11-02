@@ -27,26 +27,68 @@ include $(TOPDIR)/config.mk
 
 LIB	= libdrivers.a
 
-OBJS	= 3c589.o 5701rls.o ali512x.o \
-	  bcm570x.o bcm570x_autoneg.o cfb_console.o cfi_flash.o \
-	  cs8900.o ct69000.o dataflash.o dc2114x.o dm9000x.o \
-	  e1000.o eepro100.o \
-	  i8042.o i82365.o inca-ip_sw.o keyboard.o \
-	  lan91c96.o \
-	  natsemi.o ne2000.o netarm_eth.o netconsole.o \
-	  ns16550.o ns8382x.o ns87308.o omap1510_i2c.o \
-	  omap24xx_i2c.o pci.o pci_auto.o pci_indirect.o \
-	  pcnet.o plb2800_eth.o \
-	  ps2ser.o ps2mult.o pc_keyb.o \
-	  rtl8019.o rtl8139.o rtl8169.o \
-	  s3c4510b_eth.o s3c4510b_uart.o \
-	  sed13806.o sed156x.o \
-	  serial.o serial_max3100.o \
-	  serial_pl010.o serial_pl011.o serial_xuartlite.o \
-	  sl811_usb.o smc91111.o smiLynxEM.o status_led.o sym53c8xx.o \
-	  ti_pci1410a.o tigon3.o \
-	  usbdcore.o usbdcore_ep0.o usbdcore_omap1510.o usbtty.o \
-	  videomodes.o w83c553f.o
+OBJS	= rt2880_eth.o i2c_drv.o
+
+ifeq ($(TP_MODEL_C2V5), y)
+OBJS += qca8337_api.o
+endif
+
+ifeq ($(RALINK_MDIO_ACCESS_FUN),ON)
+OBJS	+= mii_mgr.o
+endif
+
+ifeq ($(CFG_ENV_IS), IN_FLASH)
+OBJS	+= spi_drv.o 
+endif
+
+ifeq ($(CFG_ENV_IS), IN_SPI)
+ ifeq ($(RT6855A_MP), y)
+ OBJS	+= spi_rt6855A_flash.o 
+ else
+ ifeq ($(MT7621_MP), y)
+ OBJS	+= spi_rt6855A_flash.o 
+ else
+ ifeq ($(MT7628_MP), y)
+ OBJS	+= spi_rt6855A_flash.o 
+ else
+ OBJS	+= spi_flash.o 
+ endif
+ endif
+ endif
+ ifeq ($(RT3883_MP), y)
+ OBJS	+= spi_drv.o 
+ endif
+endif
+
+ifeq ($(CFG_ENV_IS), IN_NAND)
+ ifeq ($(MT7621_MP), y)
+	OBJS    += nand/mtk_nand.o nand/bmt.o nand/nand_base.o nand/nand_ids.o
+ else
+OBJS	+= nand_flash.o 
+ endif
+ ifeq ($(RT3883_MP), y)
+ OBJS	+= spi_drv.o 
+ endif
+endif
+
+ifeq ($(MTK_XHCI), ON)
+OBJS	+= usb/host/xhci.o usb/host/xhci-mem.o usb/host/xhci-ring.o usb/host/xhci-mtk.o usb/host/xhci-mtk-power.o usb/host/xhci-mtk-scheduler.o usb/host/mtk-phy.o usb/host/mtk-phy-ahb.o usb/host/mtk-phy-7621.o
+endif
+
+ifeq ($(RALINK_OHCI), ON)
+OBJS	+= ohci-hcd.o
+endif
+
+ifeq ($(RALINK_EHCI), ON)
+OBJS	+= ehci-hcd.o ehci-ra.o
+endif
+ 
+ifeq ($(RALINK_EPHY_TESTER), ON)
+OBJS   += phy_val.o 
+endif
+ifeq ($(MTK_MSDC), ON)
+OBJS	+= msdc/mmc_core.o msdc/mmc_test.o msdc/msdc.o msdc/msdc_cust.o msdc/ts_msdc.o
+endif
 
 all:	$(LIB)
 

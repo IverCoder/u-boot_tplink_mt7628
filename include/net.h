@@ -64,11 +64,11 @@
 #ifdef CFG_RX_ETH_BUFFER
 # define PKTBUFSRX	CFG_RX_ETH_BUFFER
 #else
-# define PKTBUFSRX	4
+# define PKTBUFSRX	8
 #endif
 
-#define PKTALIGN	32
-
+#define PKTALIGN	64
+#define FLANK_TEST_SPX_ALIGNMENT 16
 typedef ulong		IPaddr_t;
 
 
@@ -167,6 +167,7 @@ typedef struct {
 #define PROT_VLAN	0x8100		/* IEEE 802.1q protocol		*/
 
 #define IPPROTO_ICMP	 1	/* Internet Control Message Protocol	*/
+#define IPPROTO_TCP		6	/*TCP Protocol*/
 #define IPPROTO_UDP	17	/* User Datagram Protocol		*/
 
 /*
@@ -349,6 +350,15 @@ extern IPaddr_t	NetPingIP;			/* the ip address to ping 		*/
 extern ushort CDPNativeVLAN;
 extern ushort CDPApplianceVLAN;
 #endif
+
+#if defined(MINI_WEB_SERVER_SUPPORT)
+/* Initialize the httpd adapter */
+extern int	NetLoopHttpd(void);
+
+/* Transmit httpd message */
+extern void	NetSendHttpd(void);
+#endif
+
 
 /* Initialize the network adapter */
 extern int	NetLoop(proto_t);

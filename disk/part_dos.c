@@ -30,10 +30,17 @@
  * http://developer.apple.com/techpubs/mac/Devices/Devices-126.html#MARKER-14-92
  */
 
+#include <linux/compiler.h>
+#include <asm/addrspace.h>
+#include <asm/byteorder.h>
 #include <common.h>
 #include <command.h>
 #include <ide.h>
 #include "part_dos.h"
+#include <fat.h>
+
+//#define DD printf("%s %d\n", __FUNCTION__, __LINE__);
+#define DD
 
 #if ((CONFIG_COMMANDS & CFG_CMD_IDE)	|| \
      (CONFIG_COMMANDS & CFG_CMD_SCSI)	|| \
@@ -83,7 +90,8 @@ static int test_block_type(unsigned char *buffer)
 
 int test_part_dos (block_dev_desc_t *dev_desc)
 {
-	unsigned char buffer[DEFAULT_SECTOR_SIZE];
+	unsigned char tmp_buffer[DEFAULT_SECTOR_SIZE];
+	unsigned char *buffer = KSEG1ADDR(&tmp_buffer[0]);
 
 	if ((dev_desc->block_read(dev_desc->dev, 0, 1, (ulong *) buffer) != 1) ||
 	    (buffer[DOS_PART_MAGIC_OFFSET + 0] != 0x55) ||
@@ -98,7 +106,8 @@ int test_part_dos (block_dev_desc_t *dev_desc)
 static void print_partition_extended (block_dev_desc_t *dev_desc, int ext_part_sector, int relative,
 							   int part_num)
 {
-	unsigned char buffer[DEFAULT_SECTOR_SIZE];
+	unsigned char tmp_buf[DEFAULT_SECTOR_SIZE];
+	unsigned char *buffer = KSEG1ADDR(&tmp_buf[0]);
 	dos_partition_t *pt;
 	int i;
 
@@ -162,7 +171,8 @@ static int get_partition_info_extended (block_dev_desc_t *dev_desc, int ext_part
 				 int relative, int part_num,
 				 int which_part, disk_partition_t *info)
 {
-	unsigned char buffer[DEFAULT_SECTOR_SIZE];
+	unsigned char tmp_buf[DEFAULT_SECTOR_SIZE];
+	unsigned char *buffer = KSEG1ADDR(&tmp_buf[0]);
 	dos_partition_t *pt;
 	int i;
 
@@ -181,6 +191,22 @@ static int get_partition_info_extended (block_dev_desc_t *dev_desc, int ext_part
 
 	/* Print all primary/logical partitions */
 	pt = (dos_partition_t *) (buffer + DOS_PART_TBL_OFFSET);
+
+	/* MTK/Ralink 2012/06/28 -- if no partition table in USB storage first sector */
+	if(pt->boot_ind != 0x80 && pt->boot_ind != 0x0){
+		boot_sector *bs;
+		printf ("It seems no partition tables existed.\n");
+		bs = (boot_sector *) (buffer);
+		if(ext_part_sector == 0 && bs->reserved && bs->fats){
+			info->blksz = 512;
+			info->start = ext_part_sector + 0;
+	                //FIXME: how to determine info->size? from FAT struct?
+			//info->size  = FAT2CPU32(bs->total_sect);
+			return 0;
+		}else
+			return -1;
+	}
+
 	for (i = 0; i < 4; i++, pt++) {
 		/*
 		 * fdisk does not show the extended partitions that

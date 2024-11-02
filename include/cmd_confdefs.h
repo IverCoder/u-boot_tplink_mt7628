@@ -32,7 +32,11 @@
  */
 #define CFG_CMD_BDI		0x00000001ULL	/* bdinfo			*/
 #define CFG_CMD_LOADS		0x00000002ULL	/* loads			*/
+#ifdef RALINK_UPGRADE_BY_SERIAL
 #define CFG_CMD_LOADB		0x00000004ULL	/* loadb			*/
+#else
+#define CFG_CMD_LOADB		0x00000000ULL
+#endif
 #define CFG_CMD_IMI		0x00000008ULL	/* iminfo			*/
 #define CFG_CMD_CACHE		0x00000010ULL	/* icache, dcache		*/
 #define CFG_CMD_FLASH		0x00000020ULL	/* flinfo, erase, protect	*/
@@ -99,8 +103,10 @@
  * (memory hogs, requires special hardware, not fully tested, etc.)
  */
 #define CFG_CMD_NONSTD (CFG_CMD_ASKENV	| \
+			CFG_CMD_AUTOSCRIPT | \
 			CFG_CMD_BEDBUG	| \
 			CFG_CMD_BMP	| \
+			CFG_CMD_BOOTD	| \
 			CFG_CMD_BSP	| \
 			CFG_CMD_CACHE	| \
 			CFG_CMD_CDP	| \
@@ -119,35 +125,42 @@
 			CFG_CMD_HWFLOW	| \
 			CFG_CMD_I2C	| \
 			CFG_CMD_IDE	| \
+			CFG_CMD_IMLS	| \
 			CFG_CMD_IMMAP	| \
 			CFG_CMD_IRQ	| \
+			CFG_CMD_ITEST	| \
 			CFG_CMD_JFFS2	| \
 			CFG_CMD_KGDB	| \
+			CFG_CMD_LOADS	| \
 			CFG_CMD_MII	| \
 			CFG_CMD_MMC	| \
 			CFG_CMD_NAND	| \
+			CFG_CMD_NFS	| \
 			CFG_CMD_PCI	| \
 			CFG_CMD_PCMCIA	| \
 			CFG_CMD_PING	| \
 			CFG_CMD_PORTIO	| \
 			CFG_CMD_REGINFO | \
 			CFG_CMD_REISER	| \
+			CFG_CMD_RUN	| \
 			CFG_CMD_SAVES	| \
 			CFG_CMD_SCSI	| \
 			CFG_CMD_SDRAM	| \
-			CFG_CMD_SPI	| \
 			CFG_CMD_UNIVERSE | \
 			CFG_CMD_USB	| \
 			CFG_CMD_VFD	)
 
 /* Default configuration
  */
-#define CONFIG_CMD_DFL	(CFG_CMD_ALL & ~CFG_CMD_NONSTD)
+#define CONFIG_CMD_DFL	(CFG_CMD_ALL & ~CFG_CMD_NONSTD & ~CFG_CMD_IMI & ~CFG_CMD_BDI \
+                         & ~CFG_CMD_MISC)
+#define CONFIG_COMMANDS (CONFIG_CMD_DFL)
 
-#ifndef CONFIG_COMMANDS
-#define CONFIG_COMMANDS CONFIG_CMD_DFL
+/* USB appliance */
+#if defined (RALINK_USB) || defined (MTK_USB)
+#undef  CONFIG_COMMANDS
+#define CONFIG_COMMANDS (CONFIG_CMD_DFL | CFG_CMD_USB | CFG_CMD_FAT)
 #endif
-
 
 /*
  * optional BOOTP fields
